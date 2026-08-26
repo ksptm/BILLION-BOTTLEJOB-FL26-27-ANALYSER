@@ -51,3 +51,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 #toast.show{opacity:1;transform:none}
 @media(max-width:950px){.hero-grid{grid-template-columns:repeat(2,1fr)}.team-editor,.two-col{grid-template-columns:1fr}.topbar{position:static}.tabs{top:0}.slot-row{grid-template-columns:60px 1fr 72px 78px}}
 @media(max-width:560px){main{padding:14px}.topbar{padding:16px;align-items:flex-start;flex-direction:column}.hero-grid,.hero-grid.compact{grid-template-columns:1fr}.section-head{flex-direction:column}.slot-row{grid-template-columns:52px 1fr}.slot-row .price,.slot-row input{grid-column:2}.model-grid{grid-template-columns:1fr}}
+
+.sort-head{appearance:none;border:0;background:transparent;color:inherit;font:inherit;font-weight:700;padding:0;cursor:pointer;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.sort-head:hover{color:var(--accent2)}
+.sort-indicator{font-size:10px;color:var(--muted)}

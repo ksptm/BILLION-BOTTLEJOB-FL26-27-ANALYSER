@@ -137,7 +137,7 @@
       <div class="section-head">
         <div>
           <h2>Player Explorer</h2>
-          <p class="muted">Browser replacement for PLAYERS + AI VIEW.</p>
+          <p class="muted">Browser replacement for PLAYERS + AI VIEW, with sortable columns and Media Activity.</p>
         </div>
         <div class="filters">
           <input id="playerSearch" type="search" placeholder="Search player or club">
@@ -164,7 +164,7 @@
     <section id="tab-settings" class="page">
       <article class="card">
         <h2>Published data</h2>
-        <p>The browser never calls fantasy.premierleague.com directly. GitHub Actions downloads the FPL API server-side and publishes snapshots into this repository. The app reads those same-origin JSON files, avoiding browser CORS restrictions.</p>
+        <p>The browser never calls fantasy.premierleague.com directly. GitHub Actions downloads the FPL API server-side and publishes snapshots into this repository. It also builds a media-activity snapshot from public Google News RSS results. The app reads those same-origin JSON files, avoiding browser CORS restrictions.</p>
         <div class="actions">
           <button id="clearCacheBtn" class="btn">Clear In-Memory History</button>
         </div>

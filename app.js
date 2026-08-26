@@ -5,6 +5,7 @@ const API = {
   bootstrap: 'data/bootstrap.json',
   fixtures: 'data/fixtures.json',
   history: 'data/history.json',
+  media: 'data/media.json',
   updated: 'data/updated.json'
 };
 
@@ -24,7 +25,7 @@ const SLOTS = [
 
 const state = {
   bootstrap:null, fixtures:[], teamsById:{}, positionsById:{},
-  players:[], history:{}, team:Array(15).fill(null), sellPrices:{}, bank:0,
+  players:[], history:{}, media:{}, team:Array(15).fill(null), sellPrices:{}, bank:0,
   weekly:null, benchSwaps:[], assetTransfers:[], singleTransfers:[], builder:null
 };
 
@@ -159,6 +160,16 @@ function attachHistoricalTransferScores(){
     const effectiveCurrentWeight=1-effectiveHistoricalWeight;
     p.historicalScore=h.score;p.historyConfidence=h.confidence;p.historicalSeasons=h.seasons;
     p.transferScore=p.aiScore*effectiveCurrentWeight+h.score*effectiveHistoricalWeight;
+    const m=state.media[String(p.id)] || state.media[p.id] || {};
+    p.mediaArticles=num(m.articlesSinceLastMatch);
+    p.mediaUniqueSources=num(m.uniqueSources);
+    p.mediaBaseline=num(m.baselineArticles);
+    p.mediaActivityIndex=num(m.activityIndex);
+    p.mediaLast24h=num(m.last24h);
+    p.mediaLast72h=num(m.last72h);
+    p.mediaWindowHours=num(m.windowHours);
+    p.mediaLastMatch=m.lastMatch || '';
+    p.mediaStatus=m.status || (p.mediaActivityIndex>=200?'HIGH':p.mediaActivityIndex>=125?'ELEVATED':'NORMAL');
     p.currentSeasonWeight=currentWeight;p.historicalWeight=historicalWeight;
   });
 }
@@ -166,10 +177,11 @@ function attachHistoricalTransferScores(){
 async function refreshLive(){
   try{
     setStatus('Loading published FPL data…');
-    const [bootstrap,fixtures,history,updated]=await Promise.all([
+    const [bootstrap,fixtures,history,media,updated]=await Promise.all([
       fetchJSON(API.bootstrap),
       fetchJSON(API.fixtures),
       fetchJSON(API.history),
+      fetchJSON(API.media).catch(()=>({})),
       fetchJSON(API.updated).catch(()=>({updated_at:null}))
     ]);
     if(!bootstrap.elements || !bootstrap.elements.length){
@@ -178,6 +190,7 @@ async function refreshLive(){
     state.bootstrap=bootstrap;
     state.fixtures=fixtures;
     state.history=history || {};
+    state.media=media || {};
     buildLiveModel();
     $('#gwBadge').textContent=`GW ${currentGW()}`;
     reconcileSavedTeam();
@@ -383,12 +396,51 @@ function runWeeklyAnalysis(){
 
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
 function tag(text,cls='neutral'){return `<span class="tag ${cls}">${esc(text)}</span>`}
+let sortableTableCounter=0;
 function table(headers,rows){
   if(!rows.length)return '<div class="notice">No results.</div>';
-  return `<div class="table-wrap"><table><thead><tr>${headers.map(h=>`<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr>${r.map((c,i)=>`<td class="${typeof c==='number'?'num':''}">${typeof c==='object'&&c?.html?c.html:esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  const id=`sortable-table-${++sortableTableCounter}`;
+  const head=headers.map((h,i)=>`<th><button type="button" class="sort-head" data-sort-table="${id}" data-sort-col="${i}" aria-label="Sort by ${esc(h)}">${esc(h)} <span class="sort-indicator">↕</span></button></th>`).join('');
+  const body=rows.map(r=>`<tr>${r.map(c=>`<td class="${typeof c==='number'?'num':''}">${typeof c==='object'&&c?.html?c.html:esc(c)}</td>`).join('')}</tr>`).join('');
+  return `<div class="table-wrap"><table id="${id}" class="sortable-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+function bindSortableTables(root=document){
+  root.querySelectorAll('.sort-head').forEach(btn=>{
+    if(btn.dataset.bound==='1')return;
+    btn.dataset.bound='1';
+    btn.addEventListener('click',()=>{
+      const tableEl=document.getElementById(btn.dataset.sortTable);
+      if(!tableEl)return;
+      const col=Number(btn.dataset.sortCol);
+      const tbody=tableEl.tBodies[0];
+      const rows=[...tbody.rows];
+      const previous=tableEl.dataset.sortCol===String(col)?tableEl.dataset.sortDir:'';
+      const dir=previous==='asc'?'desc':'asc';
+      const valueOf=cell=>{
+        const raw=(cell?.textContent||'').trim();
+        const clean=raw.replace(/[£,%+]/g,'').replace(/,/g,'');
+        if(clean!=='' && /^-?\d+(\.\d+)?$/.test(clean)) return {type:'num',value:Number(clean)};
+        return {type:'text',value:raw.toLowerCase()};
+      };
+      rows.sort((a,b)=>{
+        const av=valueOf(a.cells[col]), bv=valueOf(b.cells[col]);
+        let cmp;
+        if(av.type==='num'&&bv.type==='num') cmp=av.value-bv.value;
+        else cmp=String(av.value).localeCompare(String(bv.value),undefined,{numeric:true,sensitivity:'base'});
+        return dir==='asc'?cmp:-cmp;
+      });
+      rows.forEach(r=>tbody.appendChild(r));
+      tableEl.dataset.sortCol=String(col);
+      tableEl.dataset.sortDir=dir;
+      tableEl.querySelectorAll('.sort-indicator').forEach(x=>x.textContent='↕');
+      const ind=btn.querySelector('.sort-indicator');
+      if(ind)ind.textContent=dir==='asc'?'▲':'▼';
+    });
+  });
 }
 function renderAll(){
   renderDashboard();renderTeamEditor();renderWeekly();renderTransfers();renderPlayers();renderBuilder();renderSettings();
+  bindSortableTables();
 }
 function renderDashboard(){
   const squad=selectedSquad();$('#dashPlayers').textContent=squad.length;$('#dashBank').textContent=fmt(state.bank,1);
@@ -431,24 +483,51 @@ function renderWeekly(){
   const list=arr=>`<div class="player-list">${arr.map(p=>`<div class="player-pill"><span class="pos">${p.position}</span><span>${esc(p.player)} <span class="muted">(${esc(p.team)})</span></span><span class="score">${fmt(p.aiScore)}</span><span class="muted">${esc(p.fixture1)}</span></div>`).join('')}</div>`;
   $('#startingXI').innerHTML=list(state.weekly.starters);$('#benchList').innerHTML=list(state.weekly.bench);
   $('#benchSwaps').innerHTML=table(['Bench','Pos','Replace','Starter Pos','Bench AI','Starter AI','Gain','Decision'],state.benchSwaps.slice(0,30).map(x=>[x.benchPlayer,x.benchPosition,x.starter,x.starterPosition,Number(fmt(x.benchScore)),Number(fmt(x.starterScore)),Number(fmt(x.gain)),{html:tag(x.decision,x.decision==='START BENCH PLAYER'?'good':x.decision==='CLOSE'?'warn':'neutral')}]));
+  bindSortableTables($('#benchSwaps'));
 }
 function renderTransfers(){
-  $('#singleTransfers').innerHTML=table(['Rank','Sell','Buy','Pos','Sell £m','Buy £m','Cost Δ','Asset Improvement','Current XI','New XI','GW XI Gain','New Formation','Transfer Value','Next Fixture','Verdict'],
-    state.singleTransfers.map((x,i)=>[i+1,x.outgoing.player,x.incoming.player,x.outgoing.position,Number(fmt(x.outgoing.sellPrice,1)),Number(fmt(x.incoming.price,1)),Number(fmt(x.costDifference,1)),Number(fmt(x.assetImprovement)),Number(fmt(x.currentXI)),Number(fmt(x.newXI)),Number(fmt(x.xiGain)),x.newFormation,Number(fmt(x.transferValue)),x.incoming.fixture1,{html:tag(x.verdict,x.verdict==='MAKE TRANSFER'?'good':x.verdict==='CONSIDER'?'warn':'neutral')}]));
-  $('#assetTransfers').innerHTML=table(['Decision','Your Player','Pos','Sell £m','Current AI','History','Transfer Score','Replacement','Buy £m','Replacement Score','Improvement','Reason'],
-    state.assetTransfers.map(x=>[x.decision,x.owned.player,x.owned.position,Number(fmt(x.owned.sellPrice,1)),Number(fmt(x.owned.aiScore)),Number(fmt(x.owned.historicalScore)),Number(fmt(x.owned.transferScore)),x.replacement?.player||'',x.replacement?Number(fmt(x.replacement.price,1)):'',x.replacement?Number(fmt(x.replacement.transferScore)):'',Number(fmt(x.improvement)),x.reason]));
+  $('#singleTransfers').innerHTML=table(
+    ['Rank','Sell','Buy','Pos','Sell £m','Buy £m','Cost Δ','Asset Improvement','Current XI','New XI','GW XI Gain','New Formation','Transfer Value','Buy Media','Media Index','Next Fixture','Verdict'],
+    state.singleTransfers.map((x,i)=>[
+      i+1,x.outgoing.player,x.incoming.player,x.outgoing.position,Number(fmt(x.outgoing.sellPrice,1)),Number(fmt(x.incoming.price,1)),
+      Number(fmt(x.costDifference,1)),Number(fmt(x.assetImprovement)),Number(fmt(x.currentXI)),Number(fmt(x.newXI)),Number(fmt(x.xiGain)),
+      x.newFormation,Number(fmt(x.transferValue)),x.incoming.mediaArticles,Number(fmt(x.incoming.mediaActivityIndex,0)),x.incoming.fixture1,
+      {html:tag(x.verdict,x.verdict==='MAKE TRANSFER'?'good':x.verdict==='CONSIDER'?'warn':'neutral')}
+    ])
+  );
+  $('#assetTransfers').innerHTML=table(
+    ['Decision','Your Player','Pos','Sell £m','Current AI','History','Transfer Score','Replacement','Buy £m','Replacement Score','Improvement','Media Articles','Media Index','Reason'],
+    state.assetTransfers.map(x=>[
+      x.decision,x.owned.player,x.owned.position,Number(fmt(x.owned.sellPrice,1)),Number(fmt(x.owned.aiScore)),Number(fmt(x.owned.historicalScore)),
+      Number(fmt(x.owned.transferScore)),x.replacement?.player||'',x.replacement?Number(fmt(x.replacement.price,1)):'',x.replacement?Number(fmt(x.replacement.transferScore)):'',
+      Number(fmt(x.improvement)),x.replacement?.mediaArticles||0,Number(fmt(x.replacement?.mediaActivityIndex||0,0)),x.reason
+    ])
+  );
+  bindSortableTables($('#singleTransfers'));
+  bindSortableTables($('#assetTransfers'));
 }
 function renderPlayers(){
   if(!state.players.length){$('#playerTable').innerHTML='<div class="notice">Refresh live data first.</div>';return}
   const q=($('#playerSearch')?.value||'').toLowerCase(),pos=$('#positionFilter')?.value||'';
   const rows=state.players.filter(p=>(!pos||p.position===pos)&&(!q||`${p.player} ${p.team}`.toLowerCase().includes(q))).sort((a,b)=>b.aiScore-a.aiScore).slice(0,250);
-  $('#playerTable').innerHTML=table(['Player','Team','Pos','£m','Pts','PPG','xGI','Fixtures Avg','AI','History','Confidence','Transfer Score','Status'],rows.map(p=>[p.player,p.team,p.position,Number(fmt(p.price,1)),p.totalPoints,Number(fmt(p.ppg)),Number(fmt(p.xgi)),p.avgDifficulty===null?'':Number(fmt(p.avgDifficulty)),Number(fmt(p.aiScore)),Number(fmt(p.historicalScore)),`${Math.round(p.historyConfidence*100)}%`,Number(fmt(p.transferScore)),p.status]));
+  $('#playerTable').innerHTML=table(
+    ['Player','Team','Pos','£m','Pts','PPG','xGI','Fixtures Avg','AI','History','Confidence','Transfer Score','Media Articles','Sources','Media Index','24h','72h','Media Status','Status'],
+    rows.map(p=>[
+      p.player,p.team,p.position,Number(fmt(p.price,1)),p.totalPoints,Number(fmt(p.ppg)),Number(fmt(p.xgi)),
+      p.avgDifficulty===null?'':Number(fmt(p.avgDifficulty)),Number(fmt(p.aiScore)),Number(fmt(p.historicalScore)),
+      `${Math.round(p.historyConfidence*100)}%`,Number(fmt(p.transferScore)),
+      p.mediaArticles,p.mediaUniqueSources,Number(fmt(p.mediaActivityIndex,0)),p.mediaLast24h,p.mediaLast72h,
+      {html:tag(p.mediaStatus,p.mediaStatus==='HIGH'?'bad':p.mediaStatus==='ELEVATED'?'warn':'neutral')},p.status
+    ])
+  );
+  bindSortableTables($('#playerTable'));
 }
 function renderBuilder(){
   if(!state.builder){$('#builderOutput').innerHTML='<div class="notice">Click Build Optimised Squad.</div>';return}
   const cost=state.builder.reduce((s,p)=>s+p.price,0),best=bestXIFromSquad(state.builder);
   $('#builderOutput').innerHTML=`<div class="hero-grid compact"><article class="card"><div class="eyebrow">Cost</div><div class="big-number">£${fmt(cost,1)}m</div></article><article class="card"><div class="eyebrow">Best formation</div><div class="big-number">${best?.formation||'—'}</div></article><article class="card"><div class="eyebrow">Weighted score</div><div class="big-number">${fmt(squadWeightedScore(state.builder))}</div></article></div>`+
-  table(['Pos','Player','Team','£m','AI','Next Fixture'],state.builder.sort((a,b)=>['GKP','DEF','MID','FWD'].indexOf(a.position)-['GKP','DEF','MID','FWD'].indexOf(b.position)||b.aiScore-a.aiScore).map(p=>[p.position,p.player,p.team,Number(fmt(p.price,1)),Number(fmt(p.aiScore)),p.fixture1]));
+  table(['Pos','Player','Team','£m','AI','Media Index','Next Fixture'],state.builder.sort((a,b)=>['GKP','DEF','MID','FWD'].indexOf(a.position)-['GKP','DEF','MID','FWD'].indexOf(b.position)||b.aiScore-a.aiScore).map(p=>[p.position,p.player,p.team,Number(fmt(p.price,1)),Number(fmt(p.aiScore)),Number(fmt(p.mediaActivityIndex||0,0)),p.fixture1]));
+  bindSortableTables($('#builderOutput'));
 }
 function renderSettings(){}
 function bind(){

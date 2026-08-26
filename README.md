@@ -72,3 +72,30 @@ Everyone shares the same published FPL data snapshot and the same calculation co
 - Single free-transfer simulation.
 - Transfer Value = 70% GW XI Gain + 30% Asset Improvement.
 - £100m automatic squad builder.
+
+
+## v1.1 additions
+
+### Sortable tables
+Click any table column heading to sort ascending. Click it again to reverse the order. Numeric fields are sorted numerically, not alphabetically.
+
+### Media Activity
+The GitHub Action now creates `data/media.json` using Google News RSS search results for up to 250 currently relevant FPL players.
+
+For each player the snapshot records:
+- articles since the player's club last completed match (clamped to a 24-hour to 7-day window)
+- unique news sources
+- article count in the equivalent preceding window
+- Media Activity Index
+- last 24-hour count
+- last 72-hour count
+
+The Media Activity Index is an anomaly indicator:
+- 100 ≈ same publishing rate as the previous equivalent window
+- above 100 = elevated activity
+- 200 = about twice the preceding rate
+
+HIGH requires at least 5 current-window articles and an index of at least 200.
+ELEVATED requires at least 3 current-window articles and an index of at least 125.
+
+Media Activity is deliberately **not included in the FPL AI/Transfer Score**. It is an investigation signal, not assumed evidence that a player is a better or worse asset.
