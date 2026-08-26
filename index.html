@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#10151c">
+  <title>FPL Analyser</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>FPL Analyser</h1>
+      <div id="statusLine" class="muted">Ready.</div>
+    </div>
+    <div class="top-actions">
+      <span id="gwBadge" class="badge">GW —</span>
+      <button id="refreshLiveBtn" class="btn primary">Reload Published Data</button>
+      <button id="refreshHistoryBtn" class="btn">Reload History</button>
+    </div>
+  </header>
+
+  <nav class="tabs" aria-label="Application sections">
+    <button class="tab active" data-tab="dashboard">Dashboard</button>
+    <button class="tab" data-tab="team">My Team</button>
+    <button class="tab" data-tab="weekly">Weekly Plan</button>
+    <button class="tab" data-tab="transfers">Transfer Centre</button>
+    <button class="tab" data-tab="players">Player Explorer</button>
+    <button class="tab" data-tab="builder">Squad Builder</button>
+    <button class="tab" data-tab="settings">Settings</button>
+  </nav>
+
+  <main>
+    <section id="tab-dashboard" class="page active">
+      <div class="hero-grid">
+        <article class="card">
+          <div class="eyebrow">Current squad</div>
+          <div class="big-number"><span id="dashPlayers">0</span>/15</div>
+          <div class="muted">players selected</div>
+        </article>
+        <article class="card">
+          <div class="eyebrow">Bank</div>
+          <div class="big-number">£<span id="dashBank">0.0</span>m</div>
+          <div class="muted">available for transfers</div>
+        </article>
+        <article class="card">
+          <div class="eyebrow">Best formation</div>
+          <div id="dashFormation" class="big-number">—</div>
+          <div class="muted">from your selected 15</div>
+        </article>
+        <article class="card">
+          <div class="eyebrow">Best free transfer</div>
+          <div id="dashTransfer" class="headline">—</div>
+          <div id="dashTransferMeta" class="muted">Run weekly analysis.</div>
+        </article>
+      </div>
+
+      <article class="card">
+        <div class="section-head">
+          <div>
+            <h2>Weekly workflow</h2>
+            <p class="muted">The web equivalent of the Google Sheets control panel.</p>
+          </div>
+          <button id="runWeeklyBtn" class="btn primary large">Run Weekly Analysis</button>
+        </div>
+        <div class="workflow">
+          <span>My Team</span><b>→</b><span>Best XI</span><b>→</b><span>Bench</span><b>→</b><span>Transfers</span><b>→</b><span>Free Transfer</span>
+        </div>
+      </article>
+
+      <div id="dashboardWarnings"></div>
+    </section>
+
+    <section id="tab-team" class="page">
+      <div class="section-head">
+        <div>
+          <h2>My Team</h2>
+          <p class="muted">Select 2 GKP, 5 DEF, 5 MID and 3 FWD. Selling prices can be overridden.</p>
+        </div>
+        <div class="actions">
+          <label class="inline-field">Bank £m <input id="bankInput" type="number" min="0" max="20" step="0.1" value="0"></label>
+          <button id="clearTeamBtn" class="btn danger">Clear Team</button>
+        </div>
+      </div>
+      <div id="teamValidation"></div>
+      <div id="teamEditor" class="team-editor"></div>
+    </section>
+
+    <section id="tab-weekly" class="page">
+      <div class="section-head">
+        <div>
+          <h2>Weekly Plan</h2>
+          <p class="muted">Best legal XI, bench order and legal bench swaps using the current AI score.</p>
+        </div>
+        <button id="weeklyOnlyBtn" class="btn primary">Recalculate Weekly Plan</button>
+      </div>
+      <div id="weeklySummary" class="hero-grid compact"></div>
+      <div class="two-col">
+        <article class="card">
+          <h3>Starting XI</h3>
+          <div id="startingXI"></div>
+        </article>
+        <article class="card">
+          <h3>Bench</h3>
+          <div id="benchList"></div>
+        </article>
+      </div>
+      <article class="card">
+        <h3>Bench Swap Analysis</h3>
+        <div id="benchSwaps"></div>
+      </article>
+    </section>
+
+    <section id="tab-transfers" class="page">
+      <div class="section-head">
+        <div>
+          <h2>Transfer Centre</h2>
+          <p class="muted">Asset quality plus the actual effect on your best XI.</p>
+        </div>
+        <button id="transferOnlyBtn" class="btn primary">Analyse Transfers</button>
+      </div>
+
+      <article class="card">
+        <h3>Best Single Free Transfers</h3>
+        <p class="muted">Transfer Value = 70% GW XI Gain + 30% historical/current Asset Improvement.</p>
+        <div id="singleTransfers"></div>
+      </article>
+
+      <article class="card">
+        <h3>Squad Asset Analysis</h3>
+        <p class="muted">KEEP / WATCH / SELL with up to three affordable alternatives per owned player.</p>
+        <div id="assetTransfers"></div>
+      </article>
+    </section>
+
+    <section id="tab-players" class="page">
+      <div class="section-head">
+        <div>
+          <h2>Player Explorer</h2>
+          <p class="muted">Browser replacement for PLAYERS + AI VIEW.</p>
+        </div>
+        <div class="filters">
+          <input id="playerSearch" type="search" placeholder="Search player or club">
+          <select id="positionFilter">
+            <option value="">All positions</option>
+            <option>GKP</option><option>DEF</option><option>MID</option><option>FWD</option>
+          </select>
+        </div>
+      </div>
+      <div id="playerTable"></div>
+    </section>
+
+    <section id="tab-builder" class="page">
+      <div class="section-head">
+        <div>
+          <h2>Squad Builder</h2>
+          <p class="muted">Original £100m optimiser: 2 GKP / 5 DEF / 5 MID / 3 FWD, max three per club.</p>
+        </div>
+        <button id="buildSquadBtn" class="btn primary">Build Optimised Squad</button>
+      </div>
+      <div id="builderOutput"></div>
+    </section>
+
+    <section id="tab-settings" class="page">
+      <article class="card">
+        <h2>Published data</h2>
+        <p>The browser never calls fantasy.premierleague.com directly. GitHub Actions downloads the FPL API server-side and publishes snapshots into this repository. The app reads those same-origin JSON files, avoiding browser CORS restrictions.</p>
+        <div class="actions">
+          <button id="clearCacheBtn" class="btn">Clear In-Memory History</button>
+        </div>
+      </article>
+
+      <article class="card">
+        <h2>Model parity</h2>
+        <p class="muted">This build preserves the Google Sheets scoring model, while replacing SpreadsheetApp storage/UI with browser state.</p>
+        <div class="model-grid">
+          <div><b>AI Score</b><span>Fixtures 20%, performance 20%, expected output 20%, value 15%, reliability 10%, availability 10%, position 5%</span></div>
+          <div><b>Historical seasons</b><span>Most recent 55%, previous 30%, third 15%</span></div>
+          <div><b>History confidence</b><span>3+ seasons 100%, 2 seasons 80%, 1 season 55%, none 0%</span></div>
+          <div><b>Transfer Value</b><span>70% immediate XI gain, 30% asset improvement</span></div>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="app.js" defer></script>
+</body>
+</html>
