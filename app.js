@@ -624,7 +624,7 @@ function bindSortableTables(root=document){
   });
 }
 function renderAll(){
-  renderDashboard();renderTeamEditor();renderWeekly();renderTransfers();renderPlayers();renderBuilder();renderChips();renderSettings();
+  renderDashboard();renderTeamEditor();renderWeekly();renderTransfers();renderPlayers();renderBuilder();renderChips();renderMatches();renderSettings();
   bindSortableTables();
 }
 function renderDashboard(){
@@ -715,6 +715,158 @@ function renderBuilder(){
   bindSortableTables($('#builderOutput'));
 }
 function renderSettings(){}
+
+function currentSeasonTeamRating(teamId,teamStats){
+  const s=teamStats[teamId]||{};
+  const tableWeight=currentGW()<=5?.03:currentGW()<=10?.06:currentGW()<=20?.10:.15;
+  const nonTable=1-tableWeight;
+  const tableStrength=Math.max(0,Math.min(100,100-(((s.leaguePosition||10)-1)/19)*100));
+  const recent=Math.max(0,Math.min(100,((s.recentPPG||1.4)/3)*100));
+  const attack=Math.max(0,Math.min(100,s.attackStrength||50));
+  const defence=Math.max(0,Math.min(100,100-(s.defenceWeakness||50)));
+  return tableStrength*tableWeight+(recent*.30+attack*.35+defence*.35)*nonTable;
+}
+function expectedTeamPlayerStrength(teamId){
+  const players=state.players.filter(p=>p.teamId===teamId);
+  if(!players.length)return {overall:50,attack:50,defence:50,availability:50,historical:50,current:50};
+  const weighted=players.map(p=>{
+    const minuteShare=Math.max(.15,Math.min(1,(p.minutes||0)/Math.max(1,currentGW()*90)));
+    const rel=Math.max(.35,Math.min(1,(p.reliabilityScore||0)/100));
+    const avail=Math.max(0,Math.min(1,(p.availabilityScore||0)/100));
+    const weight=minuteShare*.6+rel*.25+avail*.15;
+    return {p,weight};
+  });
+  const top=[...weighted].sort((a,b)=>(b.p.aiScore*b.weight)-(a.p.aiScore*a.weight)).slice(0,14);
+  const sumW=top.reduce((s,x)=>s+x.weight,0)||1;
+  const current=top.reduce((s,x)=>s+x.p.aiScore*x.weight,0)/sumW;
+  const historical=top.reduce((s,x)=>s+x.p.historicalScore*x.weight,0)/sumW;
+  const availability=top.reduce((s,x)=>s+x.p.availabilityScore*x.weight,0)/sumW;
+  const attackers=top.filter(x=>['MID','FWD'].includes(x.p.position));
+  const defenders=top.filter(x=>['GKP','DEF'].includes(x.p.position));
+  const attackW=attackers.reduce((s,x)=>s+x.weight,0)||1;
+  const defenceW=defenders.reduce((s,x)=>s+x.weight,0)||1;
+  const attack=attackers.reduce((s,x)=>s+(x.p.expectedOutputScore*.55+x.p.aiScore*.45)*x.weight,0)/attackW;
+  const defence=defenders.reduce((s,x)=>s+((x.p.positionScore*.45)+(x.p.reliabilityScore*.25)+(x.p.aiScore*.30))*x.weight,0)/defenceW;
+  const overall=current*.45+historical*.20+attack*.18+defence*.12+availability*.05;
+  return {overall,attack,defence,availability,historical,current};
+}
+function teamMatchRating(teamId,isHome,teamStats){
+  const player=expectedTeamPlayerStrength(teamId);
+  const currentTeam=currentSeasonTeamRating(teamId,teamStats);
+  const s=teamStats[teamId]||{};
+  const attack=Math.max(0,Math.min(100,(player.attack*.65+(s.attackStrength||50)*.35)));
+  const defence=Math.max(0,Math.min(100,(player.defence*.65+(100-(s.defenceWeakness||50))*.35)));
+  const recent=Math.max(0,Math.min(100,((s.recentPPG||1.4)/3)*100));
+  const rating=
+    player.current*.25+
+    player.attack*.20+
+    recent*.15+
+    player.historical*.10+
+    attack*.10+
+    defence*.10+
+    (isHome?100:40)*.05+
+    player.availability*.05;
+  return {
+    rating,attack,defence,recent,historical:player.historical,
+    availability:player.availability,playerCurrent:player.current,
+    leaguePosition:s.leaguePosition||0,currentTeam
+  };
+}
+function softmax3(a,b,c){
+  const m=Math.max(a,b,c);
+  const ea=Math.exp(a-m),eb=Math.exp(b-m),ec=Math.exp(c-m),s=ea+eb+ec;
+  return [ea/s,eb/s,ec/s];
+}
+function fixtureProbabilities(fixture,teamStats){
+  const home=teamMatchRating(fixture.team_h,true,teamStats);
+  const away=teamMatchRating(fixture.team_a,false,teamStats);
+  const diff=home.rating-away.rating;
+  const homeAttackEdge=home.attack-away.defence;
+  const awayAttackEdge=away.attack-home.defence;
+  const drawBase=1.05-Math.min(.45,Math.abs(diff)/70);
+  const homeLogit=1.05+(diff/17)+(homeAttackEdge/55);
+  const awayLogit=.70+(-diff/17)+(awayAttackEdge/55);
+  const drawLogit=drawBase;
+  let [ph,pd,pa]=softmax3(homeLogit,drawLogit,awayLogit);
+  // Clamp to avoid absurd pseudo-certainty from a heuristic model.
+  ph=Math.max(.06,Math.min(.84,ph));pd=Math.max(.08,Math.min(.42,pd));pa=Math.max(.06,Math.min(.84,pa));
+  const total=ph+pd+pa;ph/=total;pd/=total;pa/=total;
+  const separation=Math.abs(home.rating-away.rating);
+  let pick='DRAW',pickProb=pd,side='draw';
+  if(ph>=pd&&ph>=pa){pick=state.teamsById[fixture.team_h]?.name||'HOME';pickProb=ph;side='home'}
+  else if(pa>=pd&&pa>=ph){pick=state.teamsById[fixture.team_a]?.name||'AWAY';pickProb=pa;side='away'}
+  const confidence=separation>=24&&pickProb>=.62?'HIGH':separation>=14&&pickProb>=.55?'GOOD':separation>=8?'MODERATE':'AVOID';
+  return {home,away,ph,pd,pa,separation,pick,pickProb,side,confidence};
+}
+function analyseMatches(){
+  const gw=Number($('#matchGW')?.value||currentGW());
+  const teamStats=teamFormContext();
+  const fixtures=(state.fixtures||[]).filter(f=>f.event===gw);
+  const rows=fixtures.map(f=>{
+    const p=fixtureProbabilities(f,teamStats);
+    return {
+      fixture:f, ...p,
+      homeName:state.teamsById[f.team_h]?.name||'',
+      awayName:state.teamsById[f.team_a]?.name||''
+    };
+  }).sort((a,b)=>b.pickProb-a.pickProb);
+  const winSelections=rows.filter(r=>r.side!=='draw'&&r.confidence!=='AVOID').sort((a,b)=>b.pickProb-a.pickProb);
+  const accas=[2,4,6,8].map(n=>{
+    const legs=winSelections.slice(0,n);
+    const combined=legs.reduce((p,x)=>p*x.pickProb,1);
+    return {n,legs,combined,available:legs.length===n};
+  });
+  state.matchAnalysis={gw,rows,accas,teamStats};
+  renderMatches();toast(`Match intelligence analysed for GW${gw}`);
+}
+function renderMatches(){
+  const gwSelect=$('#matchGW');
+  if(gwSelect&&state.bootstrap?.events?.length&&!gwSelect.options.length){
+    gwSelect.innerHTML=state.bootstrap.events.filter(e=>e.id>=currentGW()).slice(0,10).map(e=>`<option value="${e.id}" ${e.id===currentGW()?'selected':''}>GW${e.id}</option>`).join('');
+  }
+  const a=state.matchAnalysis;
+  if(!a){
+    $('#matchSummary').innerHTML='<article class="card">Run Match Analysis.</article>';
+    $('#matchPredictions').innerHTML='';$('#accaCards').innerHTML='';$('#accaTable').innerHTML='';$('#teamRatings').innerHTML='';return;
+  }
+  const strongest=a.rows[0],avoids=a.rows.filter(r=>r.confidence==='AVOID').length;
+  $('#matchSummary').innerHTML=`
+    <article class="card"><div class="eyebrow">Gameweek</div><div class="big-number">GW${a.gw}</div></article>
+    <article class="card"><div class="eyebrow">Strongest indicator</div><div class="headline">${esc(strongest?.pick||'—')}</div><div class="muted">${strongest?fmt(strongest.pickProb*100,1)+'%':''}</div></article>
+    <article class="card"><div class="eyebrow">Avoid matches</div><div class="big-number">${avoids}</div></article>`;
+  $('#matchPredictions').innerHTML=table(
+    ['Home','Away','Home Rating','Away Rating','Home %','Draw %','Away %','Model Pick','Pick %','Separation','Confidence'],
+    a.rows.map(r=>[
+      r.homeName,r.awayName,Number(fmt(r.home.rating,1)),Number(fmt(r.away.rating,1)),
+      Number(fmt(r.ph*100,1)),Number(fmt(r.pd*100,1)),Number(fmt(r.pa*100,1)),
+      r.pick,Number(fmt(r.pickProb*100,1)),Number(fmt(r.separation,1)),
+      {html:tag(r.confidence,r.confidence==='HIGH'?'good':r.confidence==='GOOD'?'good':r.confidence==='MODERATE'?'warn':'bad')}
+    ])
+  );
+  $('#accaCards').innerHTML=a.accas.map(x=>`
+    <article class="card acca-card">
+      <div class="eyebrow">${x.n}-fold model acca</div>
+      <div class="big-number">${x.available?fmt(x.combined*100,2)+'%':'—'}</div>
+      <div class="muted">${x.available?x.legs.map(l=>esc(l.pick)).join(' • '):'Not enough qualifying selections'}</div>
+    </article>`).join('');
+  const full=a.accas.find(x=>x.n===8)||a.accas[a.accas.length-1];
+  $('#accaTable').innerHTML=table(
+    ['Rank','Selection','Fixture','Model Win %','Confidence'],
+    (full?.legs||[]).map((r,i)=>[
+      i+1,r.pick,`${r.homeName} v ${r.awayName}`,Number(fmt(r.pickProb*100,1)),r.confidence
+    ])
+  );
+  const teamIds=[...new Set(a.rows.flatMap(r=>[r.fixture.team_h,r.fixture.team_a]))];
+  $('#teamRatings').innerHTML=table(
+    ['Team','League Pos','Player Current','Historical','Attack','Defence','Recent','Availability','Overall Match Rating'],
+    teamIds.map(id=>{
+      const h=teamMatchRating(id,true,a.teamStats);
+      return [state.teamsById[id]?.name||'',h.leaguePosition,Number(fmt(h.playerCurrent,1)),Number(fmt(h.historical,1)),Number(fmt(h.attack,1)),Number(fmt(h.defence,1)),Number(fmt(h.recent,1)),Number(fmt(h.availability,1)),Number(fmt(h.rating,1))];
+    }).sort((x,y)=>y[8]-x[8])
+  );
+  bindSortableTables($('#matchPredictions'));bindSortableTables($('#accaTable'));bindSortableTables($('#teamRatings'));
+}
+
 function bind(){
   $$('.tab').forEach(b=>b.addEventListener('click',()=>{$$('.tab').forEach(x=>x.classList.remove('active'));$$('.page').forEach(x=>x.classList.remove('active'));b.classList.add('active');$(`#tab-${b.dataset.tab}`).classList.add('active')}));
   $('#refreshLiveBtn').addEventListener('click',refreshLive);$('#refreshHistoryBtn').addEventListener('click',refreshHistory);
@@ -725,6 +877,7 @@ function bind(){
   $('#playerSearch').addEventListener('input',renderPlayers);$('#positionFilter').addEventListener('change',renderPlayers);
   $('#buildSquadBtn').addEventListener('click',()=>{if(!state.players.length)return toast('Refresh live data first.');setStatus('Optimising £100m squad…');setTimeout(()=>{state.builder=buildOptimisedSquad();renderBuilder();setStatus('Squad optimisation complete.');toast('Optimised squad built')},20)});
   $('#analyseChipsBtn').addEventListener('click',analyseChips);
+  $('#analyseMatchesBtn').addEventListener('click',analyseMatches);
   $('#clearCacheBtn').addEventListener('click',async()=>{state.history={};attachHistoricalTransferScores();renderAll();toast('In-memory history cleared; click Refresh History to reload the published snapshot.')});
 }
 async function init(){

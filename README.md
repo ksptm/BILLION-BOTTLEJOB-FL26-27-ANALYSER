@@ -113,3 +113,57 @@ The projection engine combines current FPL PPG, AI Score, historical score/confi
 - Wildcard Value = weighted multi-GW projected gain from an optimised permanent squad versus the current squad.
 
 These are model projections, not guaranteed expected points.
+
+
+## v1.3 — Match Intelligence + Acca Builder
+
+Adds a separate football match-strength model. It does not alter the FPL transfer AI score.
+
+### Team Match Rating
+The match model aggregates:
+- current player performance
+- player expected output
+- historical player strength
+- recent team form
+- attack strength
+- defence strength
+- expected player availability
+- home advantage
+- league position, with a deliberately low early-season weighting that rises as the season develops
+
+Player/team strength is weighted toward likely contributors using current minutes, reliability and availability.
+
+### Fixture probabilities
+Every selected gameweek fixture produces heuristic model indicators for:
+- Home win
+- Draw
+- Away win
+
+These are explicitly model indicators rather than bookmaker-calibrated probabilities. Predictions are clamped to prevent false certainty.
+
+### Match confidence
+- HIGH
+- GOOD
+- MODERATE
+- AVOID
+
+Low-separation matches are flagged AVOID rather than forced into an accumulator.
+
+### Acca Builder
+The app ranks the strongest non-draw selections and presents:
+- safest 2-fold
+- safest 4-fold
+- safest 6-fold
+- full 8-fold
+
+For each accumulator it multiplies the individual model probabilities to show the combined model probability, making the rapid probability decay of large accumulators visible.
+
+This module should be back-tested and calibrated against actual results before being treated as a betting-value model. It does not currently use bookmaker odds.
+
+
+## v1.3.1
+Cache-busting release. `index.html` now loads:
+- `styles.css?v=1.3.1`
+- `app.js?v=1.3.1`
+
+This prevents GitHub Pages/browser caching from mixing a new HTML file with an older JavaScript or stylesheet version after deployment.

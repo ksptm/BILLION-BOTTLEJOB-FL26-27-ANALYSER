@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#10151c">
   <title>FPL Analyser</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=1.3.1">
 </head>
 <body>
   <header class="topbar">
@@ -28,6 +28,7 @@
     <button class="tab" data-tab="players">Player Explorer</button>
     <button class="tab" data-tab="builder">Squad Builder</button>
     <button class="tab" data-tab="chips">Chip Strategy</button>
+    <button class="tab" data-tab="matches">Match Intelligence</button>
     <button class="tab" data-tab="settings">Settings</button>
   </nav>
 
@@ -201,6 +202,42 @@
       </article>
     </section>
 
+
+    <section id="tab-matches" class="page">
+      <div class="section-head">
+        <div>
+          <h2>Match Intelligence</h2>
+          <p class="muted">Team-vs-team strength model using player performance, historical player quality, recent form, attack/defence performance, availability, league position and home advantage.</p>
+        </div>
+        <div class="actions">
+          <label class="inline-field">Gameweek
+            <select id="matchGW"></select>
+          </label>
+          <button id="analyseMatchesBtn" class="btn primary">Analyse Matches</button>
+        </div>
+      </div>
+
+      <div id="matchSummary" class="hero-grid compact"></div>
+
+      <article class="card">
+        <h3>Fixture Predictions</h3>
+        <p class="muted">These are model indicators, not bookmaker-calibrated odds. Low-separation matches are explicitly flagged to avoid.</p>
+        <div id="matchPredictions"></div>
+      </article>
+
+      <article class="card">
+        <h3>Acca Builder</h3>
+        <p class="muted">Ranks the strongest win selections and shows how combined probability falls as more legs are added.</p>
+        <div id="accaCards" class="hero-grid"></div>
+        <div id="accaTable"></div>
+      </article>
+
+      <article class="card">
+        <h3>Team Ratings</h3>
+        <div id="teamRatings"></div>
+      </article>
+    </section>
+
     <section id="tab-settings" class="page">
       <article class="card">
         <h2>Published data</h2>
@@ -224,6 +261,6 @@
   </main>
 
   <div id="toast" role="status" aria-live="polite"></div>
-  <script src="app.js" defer></script>
+  <script src="app.js?v=1.3.1" defer></script>
 </body>
 </html>

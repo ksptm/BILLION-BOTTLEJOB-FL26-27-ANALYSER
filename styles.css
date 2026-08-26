@@ -59,3 +59,8 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .chip-card .big-number{font-size:26px}
 .chip-meta{display:grid;gap:5px;margin-top:8px}
 .chip-rec{font-weight:800}
+
+.match-strong{font-weight:800}
+.probbar{display:flex;height:8px;border-radius:999px;overflow:hidden;background:var(--panel2);margin-top:7px}
+.probbar span{display:block;height:100%}
+.acca-card .big-number{font-size:25px}
