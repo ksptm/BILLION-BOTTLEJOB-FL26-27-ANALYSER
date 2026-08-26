@@ -55,3 +55,7 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .sort-head{appearance:none;border:0;background:transparent;color:inherit;font:inherit;font-weight:700;padding:0;cursor:pointer;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
 .sort-head:hover{color:var(--accent2)}
 .sort-indicator{font-size:10px;color:var(--muted)}
+
+.chip-card .big-number{font-size:26px}
+.chip-meta{display:grid;gap:5px;margin-top:8px}
+.chip-rec{font-weight:800}

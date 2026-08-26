@@ -386,6 +386,191 @@ function buildOptimisedSquad(){
   return squad;
 }
 
+
+function teamFormContext(){
+  const stats={};
+  for(const t of (state.bootstrap?.teams||[])){
+    stats[t.id]={played:0,points:0,gf:0,ga:0,recent:[],team:t.name};
+  }
+  const finished=(state.fixtures||[]).filter(f=>f.finished).sort((a,b)=>String(a.kickoff_time||'').localeCompare(String(b.kickoff_time||'')));
+  for(const f of finished){
+    const h=stats[f.team_h],a=stats[f.team_a]; if(!h||!a)continue;
+    const hs=num(f.team_h_score),as=num(f.team_a_score);
+    h.played++;a.played++;h.gf+=hs;h.ga+=as;a.gf+=as;a.ga+=hs;
+    let hp=0,ap=0;if(hs>as)hp=3;else if(hs<as)ap=3;else{hp=1;ap=1}
+    h.points+=hp;a.points+=ap;h.recent.push(hp);a.recent.push(ap);
+    if(h.recent.length>5)h.recent.shift();if(a.recent.length>5)a.recent.shift();
+  }
+  const ordered=Object.entries(stats).sort(([,a],[,b])=>b.points-a.points||(b.gf-b.ga)-(a.gf-a.ga));
+  ordered.forEach(([id],i)=>stats[id].leaguePosition=i+1);
+  for(const s of Object.values(stats)){
+    const played=Math.max(1,s.played);
+    s.ppg=s.points/played;s.gfpg=s.gf/played;s.gapg=s.ga/played;
+    s.recentPPG=s.recent.length?s.recent.reduce((x,y)=>x+y,0)/s.recent.length:s.ppg;
+    s.attackStrength=Math.max(0,Math.min(100,(s.gfpg/2.5)*100));
+    s.defenceWeakness=Math.max(0,Math.min(100,(s.gapg/2.5)*100));
+    const tableStrength=Math.max(0,Math.min(100,100-((s.leaguePosition-1)/19)*100));
+    s.overallStrength=tableStrength*.35+s.attackStrength*.25+(100-s.defenceWeakness)*.25+Math.min(100,(s.recentPPG/3)*100)*.15;
+  }
+  return stats;
+}
+function fixturesForGW(teamId,gw){
+  return (state.fixtures||[]).filter(f=>f.event===gw&&(f.team_h===teamId||f.team_a===teamId));
+}
+function opponentContextForFixture(player,fixture,teamStats){
+  const isHome=fixture.team_h===player.teamId;
+  const oppId=isHome?fixture.team_a:fixture.team_h;
+  const opp=teamStats[oppId]||{};
+  const fdr=isHome?fixture.team_h_difficulty:fixture.team_a_difficulty;
+  let score;
+  if(player.position==='GKP'||player.position==='DEF'){
+    score=100-((opp.attackStrength||50)*.65+(opp.overallStrength||50)*.35);
+  }else{
+    score=(opp.defenceWeakness||50)*.65+(100-(opp.overallStrength||50))*.35;
+  }
+  const fdrScore=Math.max(0,(6-num(fdr))*20);
+  return Math.max(0,Math.min(100,score*.55+fdrScore*.40+(isHome?6:0)));
+}
+function playerBaseExpectedPoints(player){
+  const histPPG=player.historicalScore/100*6;
+  const currentPPG=player.ppg||0;
+  const aiPPG=player.aiScore/100*7;
+  const [cw,hw]=seasonWeights(currentGW());
+  let base=currentPPG*cw+histPPG*hw*player.historyConfidence;
+  base+=aiPPG*hw*(1-player.historyConfidence);
+  base=base*.65+aiPPG*.35;
+  const availability=player.availabilityScore/100;
+  const reliability=Math.max(.45,Math.min(1,player.reliabilityScore/100));
+  return Math.max(0,base*availability*(.65+.35*reliability));
+}
+function projectedPlayerPoints(player,gw,teamStats){
+  const fx=fixturesForGW(player.teamId,gw);
+  if(!fx.length)return 0;
+  const base=playerBaseExpectedPoints(player);
+  return fx.reduce((sum,f)=>{
+    const context=opponentContextForFixture(player,f,teamStats);
+    return sum+base*(.72+(context/100)*.58);
+  },0);
+}
+function bestProjectedXI(squad,gw,teamStats){
+  const projected=squad.map(p=>({...p,projected:projectedPlayerPoints(p,gw,teamStats)}));
+  const by={};
+  for(const pos of ['GKP','DEF','MID','FWD'])by[pos]=projected.filter(p=>p.position===pos).sort((a,b)=>b.projected-a.projected);
+  let best=null;
+  for(const f of FORMATIONS){
+    const starters=[by.GKP[0],...by.DEF.slice(0,f.DEF),...by.MID.slice(0,f.MID),...by.FWD.slice(0,f.FWD)].filter(Boolean);
+    if(starters.length!==11)continue;
+    const score=starters.reduce((s,p)=>s+p.projected,0);
+    if(!best||score>best.score)best={formation:f.name,score,starters};
+  }
+  if(!best)return null;
+  const ids=new Set(best.starters.map(p=>p.id));
+  return {...best,bench:projected.filter(p=>!ids.has(p.id))};
+}
+function projectedSquadScore(squad,gw,teamStats){
+  return squad.reduce((s,p)=>s+projectedPlayerPoints(p,gw,teamStats),0);
+}
+function bestTripleCaptainCandidate(squad,gw,teamStats){
+  const xi=bestProjectedXI(squad,gw,teamStats);if(!xi)return null;
+  return [...xi.starters].sort((a,b)=>projectedPlayerPoints(b,gw,teamStats)-projectedPlayerPoints(a,gw,teamStats))[0]||null;
+}
+function legalSquadBudget(squad,budget){
+  if(squad.length!==15||squad.reduce((s,p)=>s+p.price,0)>budget+.001)return false;
+  const req={GKP:2,DEF:5,MID:5,FWD:3},pos={GKP:0,DEF:0,MID:0,FWD:0};
+  squad.forEach(p=>pos[p.position]++);
+  for(const k in req)if(pos[k]!==req[k])return false;
+  return Object.values(clubCounts(squad)).every(c=>c<=3);
+}
+function optimiseProjectedSquad(scoreFn,budget){
+  const available=state.players.filter(p=>p.status==='a').map(p=>({...p,_proj:scoreFn(p)}));
+  const req={GKP:2,DEF:5,MID:5,FWD:3};let squad=[];
+  for(const position in req){
+    const list=available.filter(p=>p.position===position).sort((a,b)=>a.price-b.price||b._proj-a._proj);
+    let needed=req[position];
+    for(const p of list){if(!needed)break;const t=[...squad,p];if((clubCounts(t)[p.team]||0)<=3){squad.push(p);needed--}}
+  }
+  const top={};for(const pos of Object.keys(req))top[pos]=available.filter(p=>p.position===pos).sort((a,b)=>b._proj-a._proj).slice(0,20);
+  const alternatives=(cur,s,limit)=>top[cur.position].filter(c=>c.id!==cur.id&&!s.some(x=>x.id===c.id)).slice(0,limit);
+  const squadScore=s=>s.reduce((sum,p)=>sum+scoreFn(p),0);
+  let improved=true,passes=0;
+  while(improved&&passes<10){
+    improved=false;passes++;let bestScore=squadScore(squad),best=null;
+    for(let i=0;i<squad.length;i++)for(const r of alternatives(squad[i],squad,10)){
+      const t=[...squad];t[i]=r;if(!legalSquadBudget(t,budget))continue;
+      const sc=squadScore(t);if(sc>bestScore+.001){bestScore=sc;best=t}
+    }
+    if(best){squad=best;improved=true}
+  }
+  return squad;
+}
+function analyseChips(){
+  const squad=selectedSquad(),errors=validateSquad(squad);
+  if(errors.length){showTeamValidation(errors);toast('Complete a legal 15-player squad first.');return}
+  const horizon=Number($('#chipHorizon')?.value||6);
+  const teamStats=teamFormContext(),start=currentGW();
+  const budget=squad.reduce((s,p)=>s+p.sellPrice,0)+state.bank;
+  const future=[];
+  for(let gw=start;gw<Math.min(39,start+horizon);gw++){
+    const normal=bestProjectedXI(squad,gw,teamStats);if(!normal)continue;
+    const bb=projectedSquadScore(squad,gw,teamStats)-normal.score;
+    const tc=bestTripleCaptainCandidate(squad,gw,teamStats);
+    const tcValue=tc?projectedPlayerPoints(tc,gw,teamStats):0;
+
+    const fhSquad=optimiseProjectedSquad(p=>projectedPlayerPoints(p,gw,teamStats),budget);
+    const fhXI=bestProjectedXI(fhSquad,gw,teamStats);
+    const fh=(fhXI?.score||0)-normal.score;
+
+    const wcH=Math.min(6,39-gw);
+    const wcScoreFn=p=>{
+      let s=0;for(let g=gw;g<gw+wcH;g++)s+=projectedPlayerPoints(p,g,teamStats)*Math.pow(.88,g-gw);return s;
+    };
+    const wcSquad=optimiseProjectedSquad(wcScoreFn,budget);
+    let existing=0,replacement=0;
+    for(let g=gw;g<gw+wcH;g++){
+      const d=Math.pow(.88,g-gw);
+      existing+=(bestProjectedXI(squad,g,teamStats)?.score||0)*d;
+      replacement+=(bestProjectedXI(wcSquad,g,teamStats)?.score||0)*d;
+    }
+    future.push({gw,normalXI:normal.score,benchBoost:bb,tcPlayer:tc?.player||'',tcValue,freeHitValue:fh,wildcardValue:replacement-existing});
+  }
+  const bestOf=key=>[...future].sort((a,b)=>b[key]-a[key])[0]||null;
+  state.chipAnalysis={future,bestBB:bestOf('benchBoost'),bestTC:bestOf('tcValue'),bestFH:bestOf('freeHitValue'),bestWC:bestOf('wildcardValue'),horizon};
+  renderChips();toast('Chip strategy analysed');
+}
+function chipRecommendation(current,best,key){
+  if(!current||!best)return 'NO DATA';
+  const now=num(current[key]),peak=num(best[key]);
+  if(best.gw===current.gw&&now>=peak*.95)return 'PLAY / STRONG';
+  if(peak-now>=5)return 'HOLD';
+  if(now>=peak*.85)return 'CONSIDER';
+  return 'HOLD';
+}
+function renderChips(){
+  const a=state.chipAnalysis;
+  if(!a){
+    $('#chipSummary').innerHTML='<article class="card">Run Chip Analysis.</article>';
+    $('#chipTable').innerHTML='';$('#tcTable').innerHTML='';$('#chipNotes').innerHTML='';return;
+  }
+  const current=a.future[0];
+  const cards=[['Bench Boost','benchBoost',a.bestBB],['Triple Captain','tcValue',a.bestTC],['Free Hit','freeHitValue',a.bestFH],['Wildcard','wildcardValue',a.bestWC]];
+  $('#chipSummary').innerHTML=cards.map(([label,key,best])=>`<article class="card chip-card"><div class="eyebrow">${label}</div><div class="big-number">+${fmt(current?.[key]||0)}</div><div class="chip-meta"><span>Best: GW${best?.gw||'—'} +${fmt(best?.[key]||0)}</span><span class="chip-rec">${esc(chipRecommendation(current,best,key))}</span></div></article>`).join('');
+  $('#chipTable').innerHTML=table(['GW','Normal XI','Bench Boost Value','TC Player','TC Value','Free Hit Value','Wildcard Value'],
+    a.future.map(x=>[x.gw,Number(fmt(x.normalXI)),Number(fmt(x.benchBoost)),x.tcPlayer,Number(fmt(x.tcValue)),Number(fmt(x.freeHitValue)),Number(fmt(x.wildcardValue))]));
+  const teamStats=teamFormContext(),squad=selectedSquad(),tcRows=[];
+  for(const x of a.future){
+    const xi=bestProjectedXI(squad,x.gw,teamStats);if(!xi)continue;
+    xi.starters.map(p=>({...p,projected:projectedPlayerPoints(p,x.gw,teamStats)})).sort((a,b)=>b.projected-a.projected).slice(0,5).forEach(p=>tcRows.push([x.gw,p.player,p.team,p.position,Number(fmt(p.projected)),Number(fmt(p.projected))]));
+  }
+  $('#tcTable').innerHTML=table(['GW','Player','Team','Pos','Projected Pts','TC Increment'],tcRows);
+  const notes=[];
+  if(a.bestBB)notes.push(`<div class="notice"><b>Bench Boost:</b> best projected GW${a.bestBB.gw} at +${fmt(a.bestBB.benchBoost)}.</div>`);
+  if(a.bestTC)notes.push(`<div class="notice"><b>Triple Captain:</b> best projected GW${a.bestTC.gw} with ${esc(a.bestTC.tcPlayer)} at +${fmt(a.bestTC.tcValue)} over normal captaincy.</div>`);
+  if(a.bestFH)notes.push(`<div class="notice"><b>Free Hit:</b> strongest projected gap is GW${a.bestFH.gw}, +${fmt(a.bestFH.freeHitValue)}.</div>`);
+  if(a.bestWC)notes.push(`<div class="notice"><b>Wildcard:</b> strongest projected multi-GW reset begins GW${a.bestWC.gw}, +${fmt(a.bestWC.wildcardValue)} over the weighted horizon.</div>`);
+  $('#chipNotes').innerHTML=notes.join('');
+  bindSortableTables($('#chipTable'));bindSortableTables($('#tcTable'));
+}
+
 function runWeeklyAnalysis(){
   const squad=selectedSquad(), errors=validateSquad(squad);
   if(errors.length){showTeamValidation(errors);toast('Complete a legal 15-player squad first.');return}
@@ -439,7 +624,7 @@ function bindSortableTables(root=document){
   });
 }
 function renderAll(){
-  renderDashboard();renderTeamEditor();renderWeekly();renderTransfers();renderPlayers();renderBuilder();renderSettings();
+  renderDashboard();renderTeamEditor();renderWeekly();renderTransfers();renderPlayers();renderBuilder();renderChips();renderSettings();
   bindSortableTables();
 }
 function renderDashboard(){
@@ -539,6 +724,7 @@ function bind(){
   $('#bankInput').addEventListener('change',e=>{state.bank=num(e.target.value);saveState();renderDashboard()});
   $('#playerSearch').addEventListener('input',renderPlayers);$('#positionFilter').addEventListener('change',renderPlayers);
   $('#buildSquadBtn').addEventListener('click',()=>{if(!state.players.length)return toast('Refresh live data first.');setStatus('Optimising £100m squad…');setTimeout(()=>{state.builder=buildOptimisedSquad();renderBuilder();setStatus('Squad optimisation complete.');toast('Optimised squad built')},20)});
+  $('#analyseChipsBtn').addEventListener('click',analyseChips);
   $('#clearCacheBtn').addEventListener('click',async()=>{state.history={};attachHistoricalTransferScores();renderAll();toast('In-memory history cleared; click Refresh History to reload the published snapshot.')});
 }
 async function init(){

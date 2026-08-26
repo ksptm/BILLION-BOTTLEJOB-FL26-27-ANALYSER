@@ -99,3 +99,17 @@ HIGH requires at least 5 current-window articles and an index of at least 200.
 ELEVATED requires at least 3 current-window articles and an index of at least 125.
 
 Media Activity is deliberately **not included in the FPL AI/Transfer Score**. It is an investigation signal, not assumed evidence that a player is a better or worse asset.
+
+
+## v1.2 — Chip Strategy
+
+Adds projected Chip Value for Bench Boost, Triple Captain, Free Hit and Wildcard across a selectable future gameweek horizon.
+
+The projection engine combines current FPL PPG, AI Score, historical score/confidence, availability, reliability, fixture difficulty, opponent attack/defence performance, recent form and league position.
+
+- Bench Boost Value = projected all-15 score minus projected best-XI score.
+- Triple Captain Value = projected captain score, i.e. the incremental gain over ordinary captaincy.
+- Free Hit Value = projected best XI from an optimised one-week squad minus the user's normal projected XI.
+- Wildcard Value = weighted multi-GW projected gain from an optimised permanent squad versus the current squad.
+
+These are model projections, not guaranteed expected points.

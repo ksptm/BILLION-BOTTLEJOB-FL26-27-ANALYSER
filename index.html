@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="theme-color" content="#10151c">
-  <title>FPL Analyser by KSP</title>
+  <title>FPL Analyser</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="topbar">
     <div>
-      <h1>FPL Analyser by KSP</h1>
+      <h1>FPL Analyser</h1>
       <div id="statusLine" class="muted">Ready.</div>
     </div>
     <div class="top-actions">
@@ -27,6 +27,7 @@
     <button class="tab" data-tab="transfers">Transfer Centre</button>
     <button class="tab" data-tab="players">Player Explorer</button>
     <button class="tab" data-tab="builder">Squad Builder</button>
+    <button class="tab" data-tab="chips">Chip Strategy</button>
     <button class="tab" data-tab="settings">Settings</button>
   </nav>
 
@@ -159,6 +160,45 @@
         <button id="buildSquadBtn" class="btn primary">Build Optimised Squad</button>
       </div>
       <div id="builderOutput"></div>
+    </section>
+
+
+    <section id="tab-chips" class="page">
+      <div class="section-head">
+        <div>
+          <h2>Chip Strategy</h2>
+          <p class="muted">Projects chip value across future gameweeks using player form, history, fixtures, opponent performance and league position.</p>
+        </div>
+        <div class="actions">
+          <label class="inline-field">Horizon
+            <select id="chipHorizon">
+              <option value="4">4 GWs</option>
+              <option value="6" selected>6 GWs</option>
+              <option value="8">8 GWs</option>
+              <option value="10">10 GWs</option>
+            </select>
+          </label>
+          <button id="analyseChipsBtn" class="btn primary">Analyse Chips</button>
+        </div>
+      </div>
+
+      <div id="chipSummary" class="hero-grid"></div>
+
+      <article class="card">
+        <h3>Chip Opportunity by Gameweek</h3>
+        <p class="muted">Chip Value is the projected incremental gain from using the chip in that gameweek rather than playing normally.</p>
+        <div id="chipTable"></div>
+      </article>
+
+      <article class="card">
+        <h3>Triple Captain Candidates</h3>
+        <div id="tcTable"></div>
+      </article>
+
+      <article class="card">
+        <h3>Strategic Notes</h3>
+        <div id="chipNotes"></div>
+      </article>
     </section>
 
     <section id="tab-settings" class="page">
