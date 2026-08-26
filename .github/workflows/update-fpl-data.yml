@@ -1,0 +1,40 @@
+name: Update FPL Data
+
+on:
+  workflow_dispatch:
+
+  schedule:
+    # Automatically update every 6 hours
+    - cron: "17 */6 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Download FPL snapshots
+        run: python scripts/update_fpl_data.py
+
+      - name: Commit updated snapshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/
+
+          if git diff --cached --quiet; then
+            echo "No data changes."
+          else
+            git commit -m "Update FPL data snapshots"
+            git push
+          fi
